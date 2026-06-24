@@ -1,0 +1,9 @@
+# Python 依赖清单。安装命令：pip install -r requirements.txt
+feedparser>=6.0.10        # 解析播客 RSS
+requests>=2.31.0          # 带超时/重试的网络请求
+beautifulsoup4>=4.12.0    # 清洗 Show Notes 里的 HTML
+lxml>=5.0.0               # BeautifulSoup 的高速解析器
+PyYAML>=6.0.1             # 读取 config/*.yaml 配置
+python-dotenv>=1.0.1      # 读取 .env 里的密钥
+anthropic>=0.69.0         # 调用 Claude（初筛 Haiku + 分析 Sonnet）
+yt-dlp>=2025.1.1          # 抓 YouTube 字幕（Your Morning Coffee 等 YouTube 源）

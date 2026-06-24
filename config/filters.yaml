@@ -1,0 +1,442 @@
+# =============================================================================
+# config/filters.yaml
+# PGC Content Intelligence · Podcast Screening & Analysis Config
+# -----------------------------------------------------------------------------
+# Purpose: Drives relevance scoring, tagging, and analysis framework selection
+#          in src/llm/screening.py.
+# Audience: LLM (Claude) — written in English for token efficiency and clarity.
+# Team focus: Professional Content Creator (PGC) platform + overseas short drama
+#             + AI-in-content. Does NOT cover Toutiao / Xigua / Fanqie.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# 1. Identity & Goals — injected into the system prompt of the screening LLM
+# -----------------------------------------------------------------------------
+identity:
+  role: >-
+    You are an intelligence screening and analysis assistant for a Professional
+    Content Creator (PGC) platform team. The team builds a global platform for
+    professional creators, grows quality content supply, monetizes creators
+    across multiple formats (long-form video, short drama, music, live, etc.),
+    and expands its audience to older, mainstream demographics (35-55 age group)
+    beyond the core young user base.
+  scope: >-
+    Judge relevance the way a STRATEGY HEAD AT A MAJOR VIDEO PLATFORM (think YouTube)
+    would. IN SCOPE: short-form AND long-form video and streaming, and the content
+    verticals of news, sports, short drama, knowledge & how-to / educational creators,
+    entertainment, film & TV, and music — including creators, content formats,
+    monetization, audience growth, distribution & recommendation, content marketing /
+    promotion, platform competition, and AI applied to any of these. News-vertical,
+    creator-economy, and streaming episodes are ALL in scope and relevant.
+    ALSO IN SCOPE: policy / regulation / antitrust / legal news that materially affects a
+    competitor platform or the content & creator ecosystem (TikTok ban, app-store fees,
+    content-moderation & copyright law) — relevant even if framed as "political" news.
+    OUT OF SCOPE: video-game development / game engines / AI game generation / game
+    platforms (e.g. Roblox) — game-making is not our field; pure hard tech (chips,
+    datacenters, autonomous vehicles, defense); and AI in unrelated domains (medical,
+    legal, finance, edtech). NOTE: "knowledge & how-to CONTENT" (educational videos and
+    creators) is IN scope — this is different from edtech / education-AI applications (out).
+  goals:
+    - Screen podcast episodes for incremental strategic intelligence relevant to
+      the team's priorities; filter out gossip and unrelated hard-core tech.
+    - Score each episode's relevance (0-10), assign topic tags, and flag
+      competitor mentions.
+    - Annotate which analysis framework(s) should be applied in the deep-read
+      stage.
+    - Stay skeptical of sweeping "AI will disrupt everything" claims — demand
+      evidence of real-world impact.
+
+# -----------------------------------------------------------------------------
+# 2. Relevant Topics — any keyword hit makes the episode a candidate.
+#    Each topic has a weight (high/medium) and a tag written into episode metadata.
+# -----------------------------------------------------------------------------
+relevant_topics:
+
+  # 2.1 Core OKR themes (based on team's 3–5 year strategy)
+  - tag: "quality_supply_and_creator_growth"
+    weight: high
+    keywords:
+      - professional creator / PGC
+      - quality creator MAU / quality content supply
+      - scarce creator / niche content / hard-to-find talent
+      - celebrity creators (actors / athletes / musicians)
+      - authoritative media / publisher / newsroom on platform
+      - creator cold start / creator retention / creator growth
+
+  - tag: "long_form_video_vs_youtube"
+    weight: high
+    keywords:
+      - long-form video / horizontal video / 5min+ / 10min+
+      - YouTube competition / YouTube Shorts / platform mindshare
+      - search intent / high-information-density content / deep immersion
+      - watch time / content distribution efficiency / duration strategy
+      - standalone app / dedicated tab / curated feed
+
+  - tag: "creator_monetization"
+    weight: high
+    keywords:
+      - creator monetization / creator revenue / revenue per creator
+      - brand deal / sponsored content / influencer marketing
+      - revenue sharing / Creator Rewards Program / incentive fund / referral bonus
+      - e-commerce / live commerce / tipping / subscription / pay-per-view
+      - content cost ratio / margin per creator
+      - creator migration / multi-platform creator / cross-platform acquisition
+
+  - tag: "mainstream_audience_expansion"
+    weight: medium
+    keywords:
+      - older audiences / mainstream demographics / 35+ / 45+ / 55+ users
+      - audience diversification / beyond Gen Z / family-friendly content
+      - premium user segment / high lifetime value users / engaged subscribers
+      - user penetration / DAU growth / retention / long-term user value
+      - interest modeling / personalization / recommendation for diverse tastes
+      - news / sports / film & TV as audience expansion levers
+
+  - tag: "content_verticals_news_sports_knowledge_entertainment"
+    weight: high
+    description: >-
+      The content verticals a YouTube-style strategy head cares about, across BOTH
+      short-form and long-form video and streaming. Any of these as a content/creator/
+      platform topic is relevant.
+    keywords:
+      - news / publisher / local news / breaking news / journalist ecosystem / news creators
+      - sports / broadcast rights / athletes / World Cup / Olympics / regional leagues / sports highlights
+      - short drama / micro-drama / vertical drama / short-form video / Shorts / Reels
+      - knowledge & how-to / educational creators / explainers / tutorials / commentary / video essays
+      - film & TV / long-form drama / IP licensing / movie commentary / high-production content
+      - entertainment / music / podcasts as content / talk shows
+      - major events / trending moments / S-tier events / IP promotion / awards season
+      - content formats / content distribution / recommendation / watch time / audience growth
+
+  - tag: "platform_policy_and_regulation"
+    weight: medium
+    description: >-
+      Policy, regulation, antitrust, and legal developments that MATERIALLY affect a
+      competitor video / streaming / social platform or the content / creator /
+      distribution ecosystem — the kind a YouTube strategy head tracks. Relevant even
+      when framed as "political" news, as long as the substance bears on platforms,
+      content, or creators.
+      INCLUDE: TikTok ban / forced divestiture / who controls TikTok; antitrust against
+        Google/YouTube, Meta, Apple, Amazon; app-store rules & platform fees (Apple/Google
+        30%, sideloading, Epic v Apple); content moderation / Section 230 / EU DSA & DMA /
+        online-safety laws; copyright & AI-training-data law, right of publicity / likeness;
+        rulings or hearings that change a platform's distribution, monetization, or content rules.
+      EXCLUDE: partisan political commentary, elections, or politician/CEO behavior that does
+        NOT change platform / content / creator strategy; generic corporate-governance lawsuits
+        with no platform-policy angle (e.g. a pure shareholder or founder dispute).
+    keywords:
+      - TikTok ban / divestiture / forced sale / national security review / ByteDance control
+      - antitrust / monopoly / FTC / DOJ / EU Commission vs Google / Meta / Apple / Amazon
+      - app store fees / 30% commission / sideloading / Epic v Apple
+      - content moderation / Section 230 / EU DSA / DMA / online safety act
+      - copyright / AI training data / fair use / right of publicity / likeness rights
+      - platform regulation / creator-affecting law / distribution or monetization rule change
+
+  # 2.2 AI in PGC content production (L1–L4 automation levels)
+  - tag: "AI_content_production_L1_to_L4"
+    weight: high
+    description: >-
+      L1 = mostly human labor, AI assists lightly.
+      L2 = AI handles one major step (e.g. scriptwriting or dubbing), human reviews.
+      L3 = AI handles most of the pipeline, human does final QA.
+      L4 = AI runs the full production pipeline end-to-end with minimal human input.
+    keywords:
+      - AIGC / AI-generated content
+      - AI scriptwriting / AI storytelling / AI screenwriting / AI storyboard
+      - AI video generation / text-to-video / image-to-video / digital human / AI voiceover
+      - AI comics / AI animation / AI short drama / AI remake / AI lip-sync dubbing
+      - AI creative tools / lower content creation barrier / content cost reduction
+      - L1 to L4 automation / full-pipeline AI / end-to-end content generation
+      - content quality leap / viral content at scale / high-output production
+
+  - tag: "AI_in_operations_and_workflow"
+    weight: medium
+    keywords:
+      - agentic AI / AI agent / intelligent workflow / workflow automation
+      - content tagging / creator vetting / content moderation AI / AI review
+      - AI in marketing / AI in distribution / AI customer support / AI creator ops
+      - human-AI collaboration / AI replacing human steps / efficiency gains
+
+  - tag: "AI_foundational_capability"
+    weight: high
+    description: >-
+      ONLY the genuinely important, foundational AI capability advances and NEW developments
+      that materially change what AI can do — because they reshape what is possible in
+      content/media production (text, image, video, audio, music generation; reasoning;
+      agents; multimodality). Be selective and skeptical: a passing mention is not enough,
+      the episode must center on a real capability frontier shift.
+      INCLUDE: frontier / state-of-the-art model releases and what they unlock
+        (e.g. GPT, Gemini, Claude, Llama, Mistral, DeepSeek, Sora, Veo, Suno, Udio);
+        new modalities or capability jumps (text-to-video, image-to-video, voice cloning,
+        real-time generation); major leaps in quality / cost / speed; agentic capabilities;
+        long-context or reasoning breakthroughs; open-weights models that shift the frontier.
+      EXCLUDE: incremental updates; pure infrastructure (chips, datacenters, ad-tech);
+        historical retrospectives / "how X was built" stories; funding / org / business news
+        with no capability angle; AI applied to unrelated domains (medical, defense,
+        autonomous vehicles, robotics).
+    keywords:
+      - frontier model / state-of-the-art / new foundation model / model release
+      - GPT / Gemini / Claude / Llama / Mistral / DeepSeek (new model or major capability)
+      - Sora / Veo / Runway / Kling / Pika (video generation capability)
+      - Suno / Udio (music generation capability)
+      - new modality / multimodal / text-to-video / image-to-video / voice cloning
+      - reasoning model / agentic capability / long context / major quality or cost breakthrough
+      - open-weights frontier model / capability that shifts the AI frontier
+
+  # 2.3 Overseas short drama market
+  - tag: "overseas_short_drama"
+    weight: high
+    keywords:
+      - short drama / micro drama / vertical drama / bite-sized drama
+      - overseas short drama market / short drama going global
+      - webtoon / interactive drama / web novel adaptation / IP adaptation
+      - paid unlock / subscription model / in-app purchase / ROI / payback period
+      - AI-powered short drama (AI script / AI remake / AI dubbing for overseas)
+
+  # 2.4 AI music & copyright
+  - tag: "AI_music_and_copyright"
+    weight: high
+    keywords:
+      - AI music / AI music generation / AI-generated music / full-track model / background music model
+      - copyright-friendly music / independent music supply / training data licensing / song licensing
+      - major labels (Universal / Sony / Warner) / label negotiations / licensing deals
+      - streaming music market share / per-stream rate / royalties / distribution partner
+      - copyright compliance / content ID / takedown rate / infringement management
+
+  # 2.5 Streaming & platform competition
+  - tag: "streaming_and_platform_competition"
+    weight: medium
+    keywords:
+      - streaming wars / subscription vs. ad-supported / AVOD / SVOD / content spend
+      - short video & social platform creator ecosystem / monetization policy changes
+      - platform AI tools (creation / recommendation / translation / search) impact on creators
+      - M&A / content licensing / IP acquisition / international expansion strategy
+
+# -----------------------------------------------------------------------------
+# 3. Competitor Companies — a mention is ONE relevance signal among many (used for
+#    tagging and attribution). It does NOT force a minimum score. A competitor named
+#    in an unrelated context (drones, pharma, chips, defense) should still score low.
+# -----------------------------------------------------------------------------
+competitor_companies:
+
+  overseas_streaming:
+    companies:
+      - Netflix
+      - Hulu
+      - Disney+
+      - HBO Max       # also known as Max / Warner Bros. Discovery
+      - Prime Video   # Amazon
+      - Apple TV+
+      - Peacock
+      - Paramount+
+
+  overseas_short_video_and_social:
+    companies:
+      - Meta            # Instagram / Instagram Reels / Facebook
+      - Instagram Reels
+      - YouTube         # primary competitor; includes YouTube Shorts
+      - YouTube Shorts
+      - Snapchat
+      - Pinterest
+      - X               # formerly Twitter
+
+  overseas_music:
+    companies:
+      - Spotify
+      - Apple Music
+      - TIDAL
+      - SoundCloud
+      - Amazon Music
+
+  overseas_short_drama:
+    companies:
+      - ReelShort       # by Crazy Maple Studio / Zhongwen Online
+      - DramaBox
+      - GoodShort
+      - NetShort
+      - DramaWave
+      - FlareFlow
+      - FlickReels
+      - Vigloo
+      - ShortMax
+      - Kalos TV
+      - FlexTV
+      - Dreame Short    # by Stary / Star Reading
+      - MoboReel
+      - Kwai            # Kuaishou international; also in short drama
+      - Melolo
+      - FreeReels
+      - PineDrama
+      - Radish          # web novel / serialized fiction with some drama
+      - Webnovel        # Yuewen / China Literature
+
+  domestic_competitors:
+    companies:
+      - iQIYI          # 爱奇艺
+      - Youku          # 优酷
+      - Tencent Video  # 腾讯视频
+      - Mango TV       # 芒果TV
+      - Bilibili       # B站
+      - Xiaohongshu    # 小红书 / RED
+
+  ai_companies_and_models:
+    companies:
+      - OpenAI          # ChatGPT, Sora
+      - Anthropic       # Claude
+      - Google DeepMind # Gemini, Veo
+      - Sora            # OpenAI video model
+      - Suno            # AI music generation
+      - Udio            # AI music generation
+      - Runway          # AI video generation
+      - Pika            # AI video generation
+      - Kling           # Kuaishou AI video
+      - HeyGen          # AI avatar / dubbing
+      - ElevenLabs      # AI voice / dubbing
+
+# -----------------------------------------------------------------------------
+# 4. Analysis Frameworks — new field (inspired by colleague's "Skills" section).
+#    When a trigger_tag is matched, the corresponding framework_id is added to
+#    the episode metadata so the deep-analysis stage knows which questions to ask.
+# -----------------------------------------------------------------------------
+analysis_framework:
+
+  - id: competitor_move
+    trigger_tags:
+      - streaming_and_platform_competition
+      - long_form_video_vs_youtube
+      - overseas_short_drama
+    name: "Competitor Move Analysis (product / ops / monetization)"
+    questions:
+      - Why is this competitor making this move? What user need or market gap are they targeting?
+      - Which competitive dimensions does this strengthen (quality supply, monetization, mindshare, distribution)?
+      - Is the threat real? Can it shift the existing competitive balance? Is our gap widening or narrowing?
+      - Is this the optimal market entry approach? What are other players doing differently?
+      - From a business/ROI perspective, will this meaningfully change revenue, profit, or content cost ratios?
+
+  - id: ai_tech_progress
+    trigger_tags:
+      - AI_content_production_L1_to_L4
+      - AI_music_and_copyright
+    name: "AI Technology Progress Analysis (what new capabilities does this unlock?)"
+    questions:
+      - Is this a genuine frontier advance, or has something similar been done before?
+      - What previously impossible use cases does it unlock? Focus on storytelling, narrative video,
+        short drama, AI comics/animation, music, audiobook production.
+      - Rate the automation level using L1–L4 (L1 = heavy human labor, L4 = full AI pipeline).
+        Does this push scenarios from L1→L2, L2→L3, or L3→L4?
+      - Could someone use this to produce high-quality viral content? What does it mean for content quality?
+      - Is this a net positive or threat for quality content supply, creator monetization, and copyright safety?
+
+  - id: ai_application_in_content
+    trigger_tags:
+      - AI_in_operations_and_workflow
+      - AI_content_production_L1_to_L4
+    name: "AI Application in Content Industry (adoption level & real-world impact)"
+    questions:
+      - Using L1–L4, what automation tier does this application represent?
+      - What are the actual results? For standalone products: DAU/ARR/user count.
+        For platform features: penetration rate/watch time/incremental users & revenue.
+        For content: play count/follower growth/earnings.
+      - Where does human involvement remain (creator / operator / moderator)?
+        Which steps has AI already replaced?
+      - Who is adopting this — a competitor? PGC or UGC creators?
+        Will it change the creator ecosystem or cost structure?
+
+  - id: short_drama_overseas
+    trigger_tags:
+      - overseas_short_drama
+    name: "Overseas Short Drama Analysis (market dynamics & unit economics)"
+    questions:
+      - Which player and which market? What are the unit economics of
+        paid unlock / subscription (ROI, payback period)?
+      - What is changing on the content supply side? Is AI (scripting / remake / dubbing)
+        reducing costs or increasing output volume?
+      - Is this an incremental opportunity or direct competition for our short drama supply,
+        IP licensing, and monetization path?
+      - Are the claimed user scale, retention, and payment rate figures credible?
+        (Be skeptical of PR-inflated numbers.)
+
+  - id: creator_monetization
+    trigger_tags:
+      - creator_monetization
+      - quality_supply_and_creator_growth
+    name: "Creator Monetization Analysis (where does the money come from, who gets it?)"
+    questions:
+      - What are the monetization sources (revenue share / brand deals / e-commerce /
+        live / subscription / referral bonus)? What is the scale and revenue per creator?
+      - Which creator tier does this favor? Does it reach quality, scarce, and long-form
+        creators — the segment we most need to attract?
+      - Does this change creator migration incentives? (e.g., does competitor revenue reach
+        1/3 of ours — a common threshold for creators to consider switching?)
+      - What is the impact on platform content cost ratio, ROI, and ecosystem health?
+
+  - id: vertical_and_ip
+    trigger_tags:
+      - content_verticals_news_sports_knowledge_entertainment
+      - mainstream_audience_expansion
+    name: "Key Verticals & IP / Major Events Analysis"
+    questions:
+      - Which vertical (news / sports / entertainment)? Is this a supply-side shift
+        (new talent / rights / publisher) or a consumption-side mindshare shift?
+      - Is this tied to a major event or top IP (sports season, election, blockbuster)?
+        How much value does it add for user acquisition and audience diversification?
+      - Does this widen or narrow our gap vs. competitors in mindshare and quality supply?
+      - What are the implications for growing and retaining older, mainstream audiences (35-55)?
+
+# -----------------------------------------------------------------------------
+# 5. Exclude Topics — only applied when NO relevant_topic or competitor is also matched.
+#    Rule: if an episode matches both an exclude tag and a relevant tag, KEEP IT.
+#    Example: "AI chips for video generation cost reduction" = keep (content-industry-relevant).
+# -----------------------------------------------------------------------------
+exclude_topics:
+
+  - tag: "unrelated_hard_tech"
+    note: "Only exclude when there is zero connection to content, creation, distribution, or copyright."
+    keywords:
+      - semiconductor / chip fabrication / GPU architecture (non-content-compute context)
+      - quantum computing
+      - robotics / embodied AI (unless related to digital human or content creation)
+      - biotech / pharma / medical AI
+      - autonomous vehicles / industrial manufacturing / energy / new materials
+      - space / rockets / satellites (e.g. SpaceX as a hardware/finance story)
+
+  - tag: "game_making_out_of_scope"
+    note: "Game-MAKING is out of our field. This is about producing games, not about video content."
+    keywords:
+      - video game development / game design / game engines (Unity, Unreal)
+      - AI game generation / AI-generated games / procedural game worlds
+      - game platforms (e.g. Roblox) as game-creation/UGC-gaming products
+
+  - tag: "clearly_irrelevant_topics"
+    keywords:
+      - celebrity gossip / personal life of celebrities (no industry or monetization angle)
+      - pure self-help / career advice / motivational content
+      - macroeconomics / stock market / investing (unrelated to content industry)
+      - partisan political commentary / elections / politician or CEO behavior — UNLESS it bears on platform, content, or creator policy (then it IS relevant; see platform_policy_and_regulation)
+      - edtech / legal / finance vertical AI applications (NOT "knowledge & how-to CONTENT", which is IN scope)
+
+# -----------------------------------------------------------------------------
+# 6. Scoring Rules
+# -----------------------------------------------------------------------------
+scoring:
+  relevant_threshold: 5        # relevance_score >= this → is_relevant = true
+  high_weight_topic_bonus: 2   # extra points for hitting a weight=high topic
+  rules:
+    - Any keyword match in relevant_topics makes the episode a candidate.
+    - A competitor company mention is ONE signal among many — NOT an automatic pass. Weigh it by context; a competitor named in an unrelated context (drones, pharma, chips, defense, autonomous vehicles) should still score low.
+    - If exclude_topics matched but NO relevant_topics or competitor matched → mark not relevant.
+    - If both exclude and relevant match → relevant wins (keep the episode).
+    - Be skeptical of sweeping AI-disruption claims; lower the score if evidence is thin.
+    - A pure-AI episode (no direct content/creator angle) is relevant ONLY if it centers on a genuinely foundational AI capability advance or new development per AI_foundational_capability. Generic AI tech, pure infrastructure (chips, ad systems), historical "how it was built" retrospectives, or AI in unrelated domains (medical, defense, autonomous vehicles) → NOT relevant.
+
+# -----------------------------------------------------------------------------
+# 7. Output Schema — screening.py must return valid JSON matching this structure
+# -----------------------------------------------------------------------------
+output_schema:
+  format: json
+  fields:
+    is_relevant: "boolean (true/false)"
+    relevance_score: "integer 0-10"
+    tags: "array of matched topic tags and competitor names"
+    framework_ids: "array of matched analysis_framework ids for deep-read stage"
+    reason: "one sentence explaining the relevance judgment"

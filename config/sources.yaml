@@ -1,0 +1,68 @@
+# 播客信息源配置。
+# window_days：只抓取“过去 N 天”内发布的 episode。
+#
+# 每个源可设两个独立维度：
+#   content_strategy：怎么拿全文（show_notes / theverge_scrape / website_scrape /
+#                     rss_transcript_tag / youtube_channel_rss）
+#   screening：怎么判相关性（claude=用 Claude 初筛，默认；keyword=关键词匹配不调 Claude）
+# 二者互相独立——任何源都能任意组合。keyword 适合 show notes 干净清晰、可凭其判断的源。
+window_days: 14
+
+sources:
+  # —— P0 阶段只用这一个：Decoder（英文，常带完整文字稿，最适合做第一个测试源）——
+  - name: "Decoder with Nilay Patel"
+    lang: "en"
+    rss: "https://feeds.megaphone.fm/recodedecode"
+    frequency: "weekly"
+    enabled: true        # enabled=true 的源才会被处理
+    content_strategy: "theverge_scrape"   # 抓 theverge.com 文章全文（含文字稿），比 Show Notes 丰富得多
+
+  # —— 下面两个先关掉（enabled: false），等 P0 跑通后（P1 阶段）再开启并补真实 RSS 地址 ——
+  - name: "The Town with Matthew Belloni"
+    lang: "en"
+    rss: "https://feeds.megaphone.fm/the-town-with-matthew-belloni"  # 已验证有效
+    frequency: "weekly"
+    enabled: false
+    content_strategy: "show_notes"
+
+  - name: "硅谷101"
+    lang: "zh"
+    rss: "<待补充：苹果播客镜像 feed / 小宇宙>"
+    frequency: "weekly"
+    enabled: false
+    content_strategy: "show_notes"
+
+  # 注意：本项目字段名是 rss / lang / content_strategy
+  #（对应你说的 rss_url / language / content_source）
+  # Your Morning Coffee：改用 YouTube channel RSS 作为主监控源 + yt-dlp 抓字幕。
+  #（之前的 libsyn rss_transcript_tag 作废——该 feed 没有 transcript 标签。）
+  - id: your_morning_coffee
+    name: "Your Morning Coffee"
+    lang: "en"
+    frequency: "weekly"
+    enabled: true
+    content_strategy: "youtube_channel_rss"
+    screening: "keyword"          # 用关键词初筛（不调 Claude）——YMC show notes 干净清晰
+    youtube_channel_id: "UC7Wp25QkW7B6uBjSldHDc2g"
+    youtube_channel_url: "https://www.youtube.com/@yourmorningcoffee8839"
+    youtube_rss_url: "https://www.youtube.com/feeds/videos.xml?channel_id=UC7Wp25QkW7B6uBjSldHDc2g"
+
+  # Big Technology：Substack 播客。文章页自带 Substack 自动转写 transcription.json（含说话人）。
+  - name: "Big Technology"
+    lang: "en"
+    rss: "https://www.bigtechnology.com/feed"                # 主 feed（每集=播客访谈 + 文字稿）
+    # 注：旧的 api.substack.com/feed/podcast/46510.rss 其实是 "War Stories" 回顾系列(仅7集)，不是主播客
+    base_url: "https://www.bigtechnology.com"                # 用每集 feed 里的文章链接 → transcription.json
+    frequency: "weekly"
+    enabled: true
+    content_strategy: "website_scrape"
+
+  # —— Trapital：暂缓（deprioritized）。下面是已验证的正确地址，将来要启用时把注释去掉即可。 ——
+  # 说明：Trapital 文章页只有 ~14k 字的“文字解读/memo”，没有逐字 transcript，所以先放一放。
+  # - name: "Trapital"
+  #   lang: "en"
+  #   rss: "https://trapital.libsyn.com/rss"             # 已验证（你给的 megaphone 地址是 404）
+  #   base_url: "https://www.trapital.com/podcast"        # 索引页；每集在 /episodes/<slug>
+  #   frequency: "weekly"
+  #   enabled: false
+  #   content_strategy: "website_scrape"
