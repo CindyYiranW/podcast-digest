@@ -18,9 +18,11 @@ from datetime import datetime
 
 from src.fetch.rss_fetcher import fetch_all
 from src.fetch.content_enricher import enrich_all
+from src.fetch.youtube_captions_fetcher import cookies_configured
 from src.fetch.youtube_pipeline import collect_youtube_episodes
 from src.integrations.feishu_sheet import append_episodes_to_sheet
 from src.parse.shownotes_parser import parse_all
+from src.utils.cache import filter_unprocessed, mark_terminal
 from src.utils.config import get_sources
 from src.llm.screening import screen_dispatch
 from src.llm.analysis import analyze
@@ -123,7 +125,8 @@ def render_report(result: dict, no_transcript: list | None = None) -> str:
         lines.append("\n【相关但无文字稿 · 未做深度分析】")
         for ep in nt:
             star = " ⭐竞品高管访谈" if ep.get("guest_is_priority") else ""
-            lines.append(f"  • {ep.get('source_name', '')}｜{ep.get('episode_title', '')}{star}")
+            lock = " 🔒付费墙" if ep.get("paywalled") else ""
+            lines.append(f"  • {ep.get('source_name', '')}｜{ep.get('episode_title', '')}{star}{lock}")
             if ep.get("guest"):
                 gt = ep.get("guest_title", "")
                 lines.append(f"      嘉宾：{ep.get('guest')}" + (f" — {gt}" if gt else ""))
@@ -156,29 +159,62 @@ _COST_NOTE = (
 )
 
 
+_YOUTUBE_STRATEGIES = ("youtube_channel_rss", "youtube_match_captions")
+
+
+def _warn_if_youtube_unauthed() -> None:
+    """启动自检：有 YouTube 源但没配 cookie 时，提前大声提醒。
+
+    无人值守/服务器 IP 抓 YouTube 字幕几乎一定被 bot 拦。没 cookie 不会报错，
+    只是这些源会静默退化成「相关但无文字稿」，容易被忽略——所以这里先警告一次。
+    """
+    if cookies_configured():
+        return
+    yt_sources = [
+        s.get("name", "?")
+        for s in get_sources().get("sources", [])
+        if s.get("enabled", False) and s.get("content_strategy") in _YOUTUBE_STRATEGIES
+    ]
+    if not yt_sources:
+        return
+    log.warning(
+        "⚠️ 检测到 YouTube 源但未配 cookie：%s\n"
+        "    无人值守/服务器 IP 抓字幕大概率被 YouTube 拦截（status=blocked），"
+        "这些源会退化成「相关但无文字稿」。\n"
+        "    解决：在 .env 里设 YOUTUBE_COOKIES_FILE=/路径/cookies.txt（服务器）"
+        "或 YOUTUBE_COOKIES_FROM_BROWSER=safari（本机）。\n"
+        "    详见 README「YouTube transcripts: cookies setup」。",
+        "、".join(yt_sources),
+    )
+
+
 def main() -> None:
     log.info("===== 播客摘要流水线开始 =====")
     log.info("💰 %s", _COST_NOTE)
+    _warn_if_youtube_unauthed()            # [0] 启动自检：YouTube cookie
 
-    episodes = fetch_all()                 # [1] 抓取
-    if not episodes:
+    rss_episodes = fetch_all()             # [1] 抓取
+    if not rss_episodes:
         log.warning("没有抓到任何 episode，流程结束。请检查 sources.yaml 的 RSS 地址。")
         return
 
-    episodes = parse_all(episodes)         # [2] 清洗 Show Notes
-    episodes = screen_dispatch(episodes)   # [3] 初筛（按各源 screening：claude / keyword）
+    rss_episodes = parse_all(rss_episodes)        # [2] 清洗 Show Notes
+    # [2b] 跨次去重：跳过上次已处理到终态的 episode（兜底，主要靠 4 天窗口）
+    rss_episodes = filter_unprocessed(rss_episodes)
+    rss_episodes = screen_dispatch(rss_episodes)  # [3] 初筛（按各源 screening：claude / keyword）
 
     # [4] 仅对「相关」的 episode 补全全文（如 The Verge 文字稿），省时省钱
-    relevant = [e for e in episodes if e.get("is_relevant")]
+    relevant = [e for e in rss_episodes if e.get("is_relevant")]
     if relevant:
         log.info("对 %d 集相关 episode 补全全文…", len(relevant))
         enrich_all(relevant)
 
     # [4b] YouTube 源：关键词初筛(不花 Claude) → 抓字幕 → 直接得到可分析全文
     #      （返回所有处理过的候选，含未通过初筛/无字幕的，供审计日志用）
+    #      YouTube 源自带去重（youtube_pipeline 内部 already_processed/mark_processed）。
     window_days = int(get_sources().get("window_days", 14))
     yt_episodes = collect_youtube_episodes(window_days)
-    episodes = episodes + yt_episodes
+    episodes = rss_episodes + yt_episodes
 
     # 相关但没拿到文字稿（只剩 show notes）：标记，但不做深度分析
     no_transcript = [e for e in episodes if e.get("is_relevant") and not e.get("enriched")]
@@ -206,6 +242,10 @@ def main() -> None:
     if os.getenv("FEISHU_SHEET_ENABLED") == "true":
         log.info("FEISHU_SHEET_ENABLED=true，写入飞书表格审计日志…")
         append_episodes_to_sheet(episodes)
+
+    # [9] 跨次去重：把进入终态的 RSS episode 记入本地缓存（下次跳过）。
+    #     YouTube 源已在 youtube_pipeline 内部自行记录，这里只管 RSS 源。
+    mark_terminal(rss_episodes)
 
     log.info("===== 流水线结束 =====")
 
