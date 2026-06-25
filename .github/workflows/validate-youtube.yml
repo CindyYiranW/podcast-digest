@@ -1,0 +1,61 @@
+# 一次性验证：GitHub Actions 的运行器 IP 能不能抓到 YouTube 字幕。
+# 背景：GHA 跑在 Azure 数据中心 IP 上，常被 YouTube 拦截（即便配了 cookie）。
+# 这个 workflow 只测字幕抓取——不跑 Claude、不推飞书。手动触发。
+#
+# 需要的 Secret（仓库 → Settings → Secrets and variables → Actions → New secret）：
+#   YOUTUBE_COOKIES_B64 —— cookies.txt 的 base64。在你的 Mac 上生成并复制：
+#       base64 -i /Users/bytedance/podcast-digest/cookies.txt | pbcopy
+#   然后把剪贴板内容粘贴为该 Secret 的值。
+#
+# 怎么看结果：
+#   - "Baseline — WITHOUT cookies" 步骤预期 blocked（基线，用 || true 不让它失败）。
+#   - "WITH cookies" 步骤若 ✅ 绿 → GHA 这个 IP 能抓字幕，方案可行。
+#     若 ❌ 红（VERDICT 全 blocked）→ GHA IP 被拦，cookie 也救不了，需另想办法。
+name: Validate YouTube captions (GHA IP check)
+
+on:
+  workflow_dispatch: {}
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install -U yt-dlp   # YouTube 反爬常变，装最新的
+
+      - name: Show runner IP & yt-dlp version
+        run: |
+          echo "Runner public IP:"; curl -s https://api.ipify.org; echo
+          yt-dlp --version
+
+      - name: Write cookies.txt from secret
+        id: write
+        env:
+          COOKIES_B64: ${{ secrets.YOUTUBE_COOKIES_B64 }}
+        run: |
+          if [ -n "$COOKIES_B64" ]; then
+            printf '%s' "$COOKIES_B64" | base64 -d > cookies.txt
+            echo "cookies.txt written ($(wc -l < cookies.txt) lines)."
+            echo "has_cookies=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::YOUTUBE_COOKIES_B64 未设置——只能测无 cookie 的基线。"
+            echo "has_cookies=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Baseline — WITHOUT cookies (expect blocked on GHA)
+        run: PYTHONPATH=. python scripts/gha_youtube_check.py 3 || true
+
+      - name: WITH cookies — the real test
+        if: ${{ steps.write.outputs.has_cookies == 'true' }}
+        env:
+          YOUTUBE_COOKIES_FILE: ${{ github.workspace }}/cookies.txt
+        run: PYTHONPATH=. python scripts/gha_youtube_check.py 3
