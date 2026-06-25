@@ -1,6 +1,10 @@
 # 密钥文件：绝对不能上传到 GitHub
 .env
 
+# YouTube cookie 文件（含登录凭据，绝对不能上传）
+cookies.txt
+*.cookies.txt
+
 # Python 虚拟环境
 .venv/
 venv/
