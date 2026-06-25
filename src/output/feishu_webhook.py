@@ -10,6 +10,7 @@ Webhook URL 存在 .env 的 FEISHU_WEBHOOK_URL，不写进代码。
 
 from __future__ import annotations
 
+import re
 from datetime import datetime
 
 import requests
@@ -71,13 +72,57 @@ def _card(title: str, markdown: str, template: str = "blue") -> dict:
 
 
 def _insights_markdown(result: dict) -> str:
-    lines = ["**【本期核心判断】**", ""]
+    """【本期核心判断】卡片正文：cross_episode_insight 编号列表（标题由卡头承载）。"""
     insights = result.get("cross_episode_insight", [])
-    if insights:
-        for i, ins in enumerate(insights, 1):
-            lines.append(f"{i}. {ins}")
+    if not insights:
+        return "（无）"
+    return "\n".join(f"{i}. {ins}" for i, ins in enumerate(insights, 1))
+
+
+# 嘉宾职级关键词：命中即归类为「高管访谈」（竞品/重要公司高管）。
+_EXEC_RE = re.compile(r"\b(ceo|co-?founder|founder|cpo|cto|vp|president)\b", re.IGNORECASE)
+# 判断一句话是否含中文（用来决定引号风格）。
+_CJK_RE = re.compile(r"[一-鿿]")
+
+
+def _is_exec_interview(ep: dict) -> bool:
+    """嘉宾/标题/摘要里出现高管职级词 → 视为高管访谈。"""
+    hay = " ".join(
+        str(ep.get(k, ""))
+        for k in ("guest", "guests", "guest_title", "episode_title", "summary")
+    )
+    return bool(_EXEC_RE.search(hay))
+
+
+def _toc_entry(e: dict, with_star: bool) -> list[str]:
+    """目录卡里单集的几行：内容来源 + 标题、嘉宾、一句话摘要。"""
+    src = e.get("content_source", "")
+    out = [f"**{e.get('episode_title', '')}**" + (f"  ·  _{src}_" if src else "")]
+    guest = e.get("guest") or e.get("guests") or ""
+    if guest:
+        gt = e.get("guest_title", "")
+        star = " ⭐竞品高管" if (with_star and e.get("guest_is_priority")) else ""
+        out.append(f"嘉宾：{guest}" + (f" — {gt}" if gt else "") + star)
+    if e.get("summary"):
+        out.append(f"摘要：{e.get('summary')}")
+    return out
+
+
+def _toc_markdown(interviews: list[dict], topics: list[dict]) -> str:
+    """目录/摘要卡正文：两段——高管访谈 + 强相关话题。"""
+    lines = [f"**🎙️ 本期共 {len(interviews)} 场竞品/重要公司高管访谈**"]
+    if interviews:
+        for e in interviews:
+            lines.append("")
+            lines.extend(_toc_entry(e, with_star=True))
     else:
-        lines.append("（无）")
+        lines.append("（本期暂无）")
+    if topics:
+        lines.append("")
+        lines.append(f"**📌 另有 {len(topics)} 个强相关话题**")
+        for e in topics:
+            lines.append("")
+            lines.extend(_toc_entry(e, with_star=False))
     return "\n".join(lines)
 
 
@@ -95,7 +140,7 @@ def _episode_markdown(ep: dict) -> str:
 
     points = ep.get("podcast_key_points") or ep.get("key_points") or []
     if points:
-        lines.append("\n**📌 播客要点（实际内容）**")
+        lines.append("\n**📌 播客要点**")
         for kp in points:
             lines.append(f"• {kp}")
 
@@ -104,13 +149,16 @@ def _episode_markdown(ep: dict) -> str:
         lines.append("\n**💬 关键原话 / 论断**")
         for q in quotes:
             if isinstance(q, dict):
-                lines.append(f"「{q.get('quote', '')}」 —— {q.get('speaker', '')}")
+                quote, speaker = q.get("quote", ""), q.get("speaker", "")
             else:
-                lines.append(f"「{q}」")
+                quote, speaker = str(q), ""
+            # 逐字引用一律斜体；英文引用用英文引号（不用「」）
+            body = f"*「{quote}」*" if _CJK_RE.search(quote) else f'*"{quote}"*'
+            lines.append(body + (f" —— {speaker}" if speaker else ""))
 
     moves = ep.get("competitive_moves") or []
     if moves:
-        lines.append("\n**🏢 竞品动向（附文字稿原文）**")
+        lines.append("\n**🏢 竞品动向和指标**")
         for m in moves:
             if isinstance(m, dict):
                 lines.append(f"• {m.get('point', '')}")
@@ -138,13 +186,17 @@ def send_report(result: dict, no_transcript: list | None = None) -> bool:
     today = datetime.now().strftime("%Y-%m-%d")
     ok = True
 
-    # 1) 汇总卡：本期核心判断
-    ok &= _post(_card(f"📻 {today} 播客情报周报", _insights_markdown(result), "blue"))
-
     episodes = result.get("episodes", [])
-    interviews = [e for e in episodes if e.get("guest_is_priority")]
-    topics = [e for e in episodes if not e.get("guest_is_priority")]
+    interviews = [e for e in episodes if _is_exec_interview(e)]
+    topics = [e for e in episodes if not _is_exec_interview(e)]
 
+    # 1) 目录/摘要卡：高管访谈 + 强相关话题速览
+    ok &= _post(_card(f"📻 {today} 播客情报周报", _toc_markdown(interviews, topics), "blue"))
+
+    # 2) 本期核心判断
+    ok &= _post(_card("【本期核心判断】", _insights_markdown(result), "blue"))
+
+    # 3) 每集深度卡（访谈在前，话题在后）
     def _ep_card(ep: dict, template: str) -> None:
         nonlocal ok
         title = f"🎙️ {ep.get('source_name', '')}｜{ep.get('episode_title', '')}"
@@ -152,28 +204,22 @@ def send_report(result: dict, no_transcript: list | None = None) -> bool:
             title = title[:97] + "…"
         ok &= _post(_card(title, _episode_markdown(ep), template))
 
-    # 2) 主板块：竞品高管访谈（分隔卡 + 每集详情，亮色）
-    ok &= _post(_card("🎙️ 本期竞品高管访谈（重点）",
-                      f"本期共 {len(interviews)} 场竞品/重要公司高管访谈。" if interviews
-                      else "本期没有竞品高管访谈。", "turquoise"))
     for ep in interviews:
         _ep_card(ep, "turquoise")
+    for ep in topics:
+        _ep_card(ep, "wathet")
 
-    # 3) 次板块：其他强相关行业话题
-    if topics:
-        ok &= _post(_card("📌 其他强相关行业话题", f"另有 {len(topics)} 个强相关话题。", "wathet"))
-        for ep in topics:
-            _ep_card(ep, "wathet")
-
-    # 4) 相关但无文字稿的集子：只列出，不做深度分析
+    # 4) 相关但无文字稿：只列出，标题做成超链接，不做深度分析
     if no_transcript:
-        md = "\n".join(
-            f"• {('⭐ ' if ep.get('guest_is_priority') else '')}{ep.get('source_name', '')}"
-            f"｜{ep.get('episode_title', '')}"
-            f"{'　🔒 付费墙（订阅者专享）' if ep.get('paywalled') else ''}"
-            for ep in no_transcript
-        )
-        ok &= _post(_card("📄 相关但无文字稿（未做深度分析）", md, "grey"))
+        rows = []
+        for ep in no_transcript:
+            title = ep.get("episode_title", "")
+            link = ep.get("episode_link") or ep.get("youtube_url")
+            titled = f"[{title}]({link})" if link else title
+            star = "⭐ " if ep.get("guest_is_priority") else ""
+            lock = "　🔒 付费墙（订阅者专享）" if ep.get("paywalled") else ""
+            rows.append(f"• {star}{ep.get('source_name', '')}｜{titled}{lock}")
+        ok &= _post(_card("📄 相关但无文字稿（未做深度分析）", "\n".join(rows), "grey"))
 
     if ok:
         log.info("✅ 已推送到飞书：访谈 %d 场 + 话题 %d 个。", len(interviews), len(topics))
