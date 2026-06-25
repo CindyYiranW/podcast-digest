@@ -85,8 +85,11 @@ def _episode_markdown(ep: dict) -> str:
     lines: list[str] = []
     if ep.get("content_source"):
         lines.append(f"**内容来源**：{ep.get('content_source')}")
-    if ep.get("guests"):
-        lines.append(f"**嘉宾**：{ep.get('guests')}")
+    guest = ep.get("guest") or ep.get("guests") or ""
+    if guest:
+        gt = ep.get("guest_title", "")
+        star = " ⭐竞品高管" if ep.get("guest_is_priority") else ""
+        lines.append(f"**嘉宾**：{guest}" + (f" — {gt}" if gt else "") + star)
     if ep.get("summary"):
         lines.append(f"**一句话摘要**：{ep.get('summary')}")
 
@@ -126,7 +129,7 @@ def _episode_markdown(ep: dict) -> str:
     return "\n".join(lines)
 
 
-def send_report(result: dict) -> bool:
+def send_report(result: dict, no_transcript: list | None = None) -> bool:
     """把整份报告推送到飞书群。返回是否全部成功。"""
     if not is_configured():
         log.info("未配置 FEISHU_WEBHOOK_URL，跳过飞书推送。")
@@ -138,17 +141,41 @@ def send_report(result: dict) -> bool:
     # 1) 汇总卡：本期核心判断
     ok &= _post(_card(f"📻 {today} 播客情报周报", _insights_markdown(result), "blue"))
 
-    # 2) 每集一张详情卡
     episodes = result.get("episodes", [])
-    for ep in episodes:
+    interviews = [e for e in episodes if e.get("guest_is_priority")]
+    topics = [e for e in episodes if not e.get("guest_is_priority")]
+
+    def _ep_card(ep: dict, template: str) -> None:
+        nonlocal ok
         title = f"🎙️ {ep.get('source_name', '')}｜{ep.get('episode_title', '')}"
-        # 飞书卡片标题有长度限制，过长则截断
         if len(title) > 100:
             title = title[:97] + "…"
-        ok &= _post(_card(title, _episode_markdown(ep), "wathet"))
+        ok &= _post(_card(title, _episode_markdown(ep), template))
+
+    # 2) 主板块：竞品高管访谈（分隔卡 + 每集详情，亮色）
+    ok &= _post(_card("🎙️ 本期竞品高管访谈（重点）",
+                      f"本期共 {len(interviews)} 场竞品/重要公司高管访谈。" if interviews
+                      else "本期没有竞品高管访谈。", "turquoise"))
+    for ep in interviews:
+        _ep_card(ep, "turquoise")
+
+    # 3) 次板块：其他强相关行业话题
+    if topics:
+        ok &= _post(_card("📌 其他强相关行业话题", f"另有 {len(topics)} 个强相关话题。", "wathet"))
+        for ep in topics:
+            _ep_card(ep, "wathet")
+
+    # 4) 相关但无文字稿的集子：只列出，不做深度分析
+    if no_transcript:
+        md = "\n".join(
+            f"• {('⭐ ' if ep.get('guest_is_priority') else '')}{ep.get('source_name', '')}"
+            f"｜{ep.get('episode_title', '')}"
+            for ep in no_transcript
+        )
+        ok &= _post(_card("📄 相关但无文字稿（未做深度分析）", md, "grey"))
 
     if ok:
-        log.info("✅ 已推送到飞书：1 张汇总卡 + %d 张详情卡。", len(episodes))
+        log.info("✅ 已推送到飞书：访谈 %d 场 + 话题 %d 个。", len(interviews), len(topics))
     else:
         log.warning("⚠️ 飞书推送部分失败，请看上面的错误日志。")
     return ok

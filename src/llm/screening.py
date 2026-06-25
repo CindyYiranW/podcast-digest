@@ -34,8 +34,14 @@ SCREENING_SCHEMA = {
         "tags": {"type": "array", "items": {"type": "string"}},
         "framework_ids": {"type": "array", "items": {"type": "string"}},
         "reason": {"type": "string"},
+        "guest": {"type": "string"},            # 嘉宾姓名（无嘉宾/主持人独白则空）
+        "guest_title": {"type": "string"},      # 嘉宾职位 + 公司
+        "guest_is_priority": {"type": "boolean"},  # 是否竞品/重要公司高管 → 优先访谈
     },
-    "required": ["is_relevant", "relevance_score", "tags", "framework_ids", "reason"],
+    "required": [
+        "is_relevant", "relevance_score", "tags", "framework_ids", "reason",
+        "guest", "guest_title", "guest_is_priority",
+    ],
     "additionalProperties": False,
 }
 
@@ -47,6 +53,7 @@ _CRITERIA_SECTIONS = [
     "analysis_framework",
     "exclude_topics",
     "scoring",
+    "guest_priority",
 ]
 
 
@@ -72,6 +79,12 @@ def screen_episode(ep: dict, client: LLMClient, prompt_tpl: str, criteria: str) 
         ep["tags"] = data.get("tags", []) or []
         ep["framework_ids"] = data.get("framework_ids", []) or []
         ep["reason"] = data.get("reason", "")
+        ep["guest"] = data.get("guest", "") or ""
+        ep["guest_title"] = data.get("guest_title", "") or ""
+        ep["guest_is_priority"] = bool(data.get("guest_is_priority", False))
+        # 竞品高管访谈是本工具的主产物 → 永远视为相关
+        if ep["guest_is_priority"]:
+            ep["is_relevant"] = True
     except Exception as e:  # noqa: BLE001
         # 解析失败时不要静默丢弃：保守保留，并标记出来，方便你看到。
         log.warning("初筛「%s」失败，保守保留：%s", ep.get("episode_title"), e)
@@ -80,6 +93,9 @@ def screen_episode(ep: dict, client: LLMClient, prompt_tpl: str, criteria: str) 
         ep["tags"] = []
         ep["framework_ids"] = []
         ep["reason"] = "初筛结果解析失败，已保守保留待人工确认"
+        ep["guest"] = ""
+        ep["guest_title"] = ""
+        ep["guest_is_priority"] = False
     return ep
 
 
@@ -117,6 +133,9 @@ def keyword_screen(episodes: list[dict]) -> list[dict]:
         ep["tags"] = hits
         ep["framework_ids"] = []
         ep["reason"] = "keyword_filter_matched" if hits else "keyword_filter_not_matched"
+        ep["guest"] = ""           # 关键词初筛不判断嘉宾
+        ep["guest_title"] = ""
+        ep["guest_is_priority"] = False
         flag = "✅相关" if hits else "❌不相关"
         log.info("  [关键词] %s %s | 命中:%s",
                  flag, ep.get("episode_title", "")[:40], hits[:4])

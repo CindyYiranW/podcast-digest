@@ -20,10 +20,13 @@ sources:
   # —— 下面两个先关掉（enabled: false），等 P0 跑通后（P1 阶段）再开启并补真实 RSS 地址 ——
   - name: "The Town with Matthew Belloni"
     lang: "en"
-    rss: "https://feeds.megaphone.fm/the-town-with-matthew-belloni"  # 已验证有效
+    rss: "https://feeds.megaphone.fm/the-town-with-matthew-belloni"  # 播客 RSS 做监控（无 clips）
     frequency: "weekly"
-    enabled: false
-    content_strategy: "show_notes"
+    enabled: true
+    # 监控用播客 RSS，再去 YouTube 频道按标题匹配完整集 → 抓字幕（拿到逐字稿）
+    content_strategy: "youtube_match_captions"
+    youtube_channel_id: "UCnnIvsEv9cSQxp8LWyVhcew"
+    youtube_channel_url: "https://www.youtube.com/@TheTownPodcast"
 
   - name: "硅谷101"
     lang: "zh"
@@ -57,12 +60,14 @@ sources:
     enabled: true
     content_strategy: "website_scrape"
 
-  # —— Trapital：暂缓（deprioritized）。下面是已验证的正确地址，将来要启用时把注释去掉即可。 ——
-  # 说明：Trapital 文章页只有 ~14k 字的“文字解读/memo”，没有逐字 transcript，所以先放一放。
-  # - name: "Trapital"
-  #   lang: "en"
-  #   rss: "https://trapital.libsyn.com/rss"             # 已验证（你给的 megaphone 地址是 404）
-  #   base_url: "https://www.trapital.com/podcast"        # 索引页；每集在 /episodes/<slug>
-  #   frequency: "weekly"
-  #   enabled: false
-  #   content_strategy: "website_scrape"
+  # Trapital：网站文章页是 Dan Runcie 的文字解读/嘉宾文章（~2-8k tokens，非逐字稿，但比 show notes 丰富）
+  - name: "Trapital"
+    lang: "en"
+    rss: "https://trapital.libsyn.com/rss"             # 播客 RSS 做监控
+    base_url: "https://www.trapital.com/podcast"        # YouTube 没匹配到时，退而抓网站文章正文
+    frequency: "weekly"
+    enabled: true
+    # 优先去 YouTube 抓逐字稿；没匹配到则退到网站文章；再退到 show notes
+    content_strategy: "youtube_match_captions"
+    youtube_channel_id: "UC7l9HBFEdNdmRCZ-lpzvhMQ"
+    youtube_channel_url: "https://www.youtube.com/@trapital"

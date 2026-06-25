@@ -153,6 +153,8 @@ def fetch_source(source: dict, window_days: int) -> list[dict]:
     content_strategy = source.get("content_strategy", "show_notes")
     screening = source.get("screening", "claude")
     base_url = source.get("base_url", "")
+    yt_channel_id = source.get("youtube_channel_id", "")
+    yt_channel_url = source.get("youtube_channel_url", "")
 
     if not url or url.startswith("<"):
         log.warning("跳过「%s」：RSS 地址还没填好（%s）", name, url)
@@ -189,6 +191,8 @@ def fetch_source(source: dict, window_days: int) -> list[dict]:
                 "content_strategy": content_strategy,   # 抓取策略（来自配置）
                 "screening": screening,                  # 初筛方式：claude / keyword（来自配置）
                 "base_url": base_url,                    # website_scrape 用的站点地址（来自配置）
+                "youtube_channel_id": yt_channel_id,     # youtube_match_captions 用
+                "youtube_channel_url": yt_channel_url,
                 "transcript_url": transcript_url,        # <podcast:transcript> 的 URL（可能为 None）
                 "transcript_type": transcript_type,      # transcript 格式（srt/vtt/html/...）
                 "episode_title": entry.get("title", "（无标题）"),

@@ -113,9 +113,14 @@ def _build_payload(episodes: list[dict]) -> str:
 
 def analyze(episodes: list[dict]) -> dict:
     """对初筛保留（is_relevant=True）的 episode 做深度分析。"""
-    kept = [e for e in episodes if e.get("is_relevant")]
+    # 规则：只有拿到真正全文/文字稿（enriched=True）的相关 episode 才做深度分析。
+    # 只剩 show notes（enriched=False）的，不做深度分析（在报告里另行标记）。
+    kept = [e for e in episodes if e.get("is_relevant") and e.get("enriched")]
+    skipped = [e for e in episodes if e.get("is_relevant") and not e.get("enriched")]
+    if skipped:
+        log.info("%d 集相关但无文字稿 → 不做深度分析（仅标记）。", len(skipped))
     if not kept:
-        log.warning("没有相关 episode，跳过深度分析。")
+        log.warning("没有「相关且有文字稿」的 episode，跳过深度分析。")
         return {"cross_episode_insight": [], "episodes": []}
 
     client = LLMClient()
@@ -135,12 +140,30 @@ def analyze(episodes: list[dict]) -> dict:
         log.error("深度分析结果解析失败：%s", e)
         raise
 
-    # 把每集的内容来源标记（full_transcript / show_notes only）回填到 LLM 输出上，
-    # 这样最终报告能逐集显示用的是全文还是 Show Notes。
-    by_title = {e.get("episode_title", "").strip(): e.get("content_source", "")
-                for e in kept}
+    # 把初筛阶段的元信息（内容来源、嘉宾、相关性分数）回填到 LLM 输出上，
+    # 用于报告展示 + 排序（优先访谈在前）。
+    meta = {
+        e.get("episode_title", "").strip(): {
+            "content_source": e.get("content_source", ""),
+            "guest": e.get("guest", ""),
+            "guest_title": e.get("guest_title", ""),
+            "guest_is_priority": e.get("guest_is_priority", False),
+            "relevance_score": e.get("relevance_score", 0),
+        }
+        for e in kept
+    }
     for ep in result.get("episodes", []):
-        ep["content_source"] = by_title.get(ep.get("episode_title", "").strip(), "")
+        m = meta.get(ep.get("episode_title", "").strip(), {})
+        ep["content_source"] = m.get("content_source", "")
+        ep["guest"] = m.get("guest", "")
+        ep["guest_title"] = m.get("guest_title", "")
+        ep["guest_is_priority"] = m.get("guest_is_priority", False)
+        ep["relevance_score"] = m.get("relevance_score", 0)
+    # 优先访谈在前，再按相关性分数降序
+    result["episodes"].sort(
+        key=lambda e: (e.get("guest_is_priority", False), e.get("relevance_score", 0)),
+        reverse=True,
+    )
 
     n_ins = len(result.get("cross_episode_insight", []))
     n_eps = len(result.get("episodes", []))

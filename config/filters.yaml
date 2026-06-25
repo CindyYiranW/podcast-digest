@@ -248,6 +248,13 @@ competitor_companies:
       - SoundCloud
       - Amazon Music
 
+  music_labels_and_rights:
+    companies:
+      - Universal Music Group   # UMG
+      - Warner Music            # WMG
+      - Sony Music
+      - SoundPatrol             # AI music detection / rights
+
   overseas_short_drama:
     companies:
       - ReelShort       # by Crazy Maple Studio / Zhongwen Online
@@ -407,6 +414,16 @@ exclude_topics:
       - AI game generation / AI-generated games / procedural game worlds
       - game platforms (e.g. Roblox) as game-creation/UGC-gaming products
 
+  - tag: "traditional_film_business"
+    note: >-
+      Traditional theatrical / studio film business with NO platform, streaming, creator,
+      short-form, or AI angle. EXCLUDE unless it ties to one of those.
+    keywords:
+      - theatrical box office numbers / opening weekend / box office boom or slump
+      - indie film financing / film fund / film P&A / how a film's profits are split
+      - film festival deal-making / awards-season campaigns / studio greenlighting
+      - traditional movie production economics (no streaming / platform / creator angle)
+
   - tag: "clearly_irrelevant_topics"
     keywords:
       - celebrity gossip / personal life of celebrities (no industry or monetization angle)
@@ -428,6 +445,34 @@ scoring:
     - If both exclude and relevant match → relevant wins (keep the episode).
     - Be skeptical of sweeping AI-disruption claims; lower the score if evidence is thin.
     - A pure-AI episode (no direct content/creator angle) is relevant ONLY if it centers on a genuinely foundational AI capability advance or new development per AI_foundational_capability. Generic AI tech, pure infrastructure (chips, ad systems), historical "how it was built" retrospectives, or AI in unrelated domains (medical, defense, autonomous vehicles) → NOT relevant.
+    - Traditional theatrical-film business (box-office numbers, indie-film financing/payout, festival/awards deal-making, studio greenlighting) with NO platform / streaming / creator / short-form / AI angle → score below threshold (NOT relevant). See exclude_topics.traditional_film_business.
+    - GUEST OVERRIDE: if a guest is a senior exec at a competitor company (see guest_priority), the episode is relevant regardless of topic — competitor-exec interviews are this tool's primary output.
+
+# -----------------------------------------------------------------------------
+# 6b. Guest Priority — THE PRIMARY SIGNAL.
+#     This tool is first and foremost a digest of COMPETITOR-EXECUTIVE INTERVIEWS.
+#     Identify the guest(s) from the title + show notes (which usually name the guest's
+#     company + title), and match the COMPANY against competitor_companies above.
+# -----------------------------------------------------------------------------
+guest_priority:
+  rule: >-
+    Identify the episode's guest(s)/speaker(s) and their role + company from the title and
+    show notes. Decide whether the guest makes this a PRIORITY interview. Being affiliated
+    with a competitor company matters MUCH MORE than seniority.
+  priority_if:
+    - The guest is a leader (founder / C-level / President / EVP / SVP / VP / Head / GM /
+      partner) at any company in competitor_companies above → priority interview.
+    - The guest is a founder or senior operator of a notable creator-economy / streaming /
+      video / music / short-drama / AI-content company (judge from the company description in
+      the show notes), even if not explicitly listed above → priority interview.
+  not_priority:
+    - Host(s) talking solo / hot takes, or the guest is a journalist / analyst / commentator
+      / non-executive with no notable-company affiliation → NOT a priority interview.
+  scoring:
+    competitor_exec_guest: "+3, AND mark the episode relevant regardless of topic"
+    notable_company_operator: "+2"
+    host_solo_or_no_name: "-1 (mild downrank; can still qualify on a very strong topic)"
+  emphasis: "From a competitor > seniority. Interviews are the primary product of this digest."
 
 # -----------------------------------------------------------------------------
 # 7. Output Schema — screening.py must return valid JSON matching this structure

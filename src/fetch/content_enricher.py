@@ -17,10 +17,14 @@ import difflib
 import json
 import re
 import time
+from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
 
+from src.fetch.youtube_captions_fetcher import clean_vtt_to_text, fetch_youtube_captions
+from src.fetch.youtube_match import find_youtube_video
+from src.utils.config import PROJECT_ROOT
 from src.utils.logger import get_logger
 
 log = get_logger(__name__)
@@ -43,7 +47,14 @@ _MATCH_CUTOFF = 0.82
 FLAG_FULL = "full_transcript (The Verge)"
 FLAG_RSS = "full_transcript (RSS transcript)"
 FLAG_SUBSTACK = "full_transcript (Substack)"
+FLAG_TRAPITAL = "full_text (Trapital site)"
 FLAG_SHOW = "show_notes only"
+
+# 抓到的 YouTube 字幕存放目录
+_CAPTIONS_DIR = str(PROJECT_ROOT / "data" / "cache" / "captions")
+
+# 站点索引页缓存（避免对同一索引页重复抓取），key=索引页URL
+_INDEX_CACHE: dict[str, dict] = {}
 
 # Substack 文章页里指向自动转写文件的链接
 _SUBSTACK_TRANSCRIPTION_RE = re.compile(
@@ -192,6 +203,38 @@ def _transcript_to_text(raw: bytes, ttype: str) -> str:
     return s.strip()
 
 
+def _build_link_index(index_url: str, href_pattern: str) -> dict[str, str]:
+    """抓索引页，返回 {标准化标题: 文章URL}（按 href_pattern 过滤链接）。带缓存。"""
+    if index_url in _INDEX_CACHE:
+        return _INDEX_CACHE[index_url]
+    mapping: dict[str, str] = {}
+    html = _fetch_html(index_url)
+    if html:
+        soup = BeautifulSoup(html, "lxml")
+        for a in soup.find_all("a", href=True):
+            if not re.search(href_pattern, a["href"]):
+                continue
+            text = a.get_text(strip=True)
+            if text:
+                mapping.setdefault(_normalize(text), urljoin(index_url, a["href"]))
+    log.info("索引页解析到 %d 个候选文章：%s", len(mapping), index_url)
+    _INDEX_CACHE[index_url] = mapping
+    return mapping
+
+
+def _scrape_trapital(episode: dict) -> tuple[str | None, str | None]:
+    """Trapital：在 /podcast 索引页按标题匹配到 /episodes/<slug>，抓正文。"""
+    base = episode.get("base_url") or "https://www.trapital.com/podcast"
+    index = _build_link_index(base, r"/episodes/")
+    url = find_article_url(episode.get("episode_title", ""), index)
+    if not url:
+        return (None, None)
+    html = _fetch_html(url)
+    if not html:
+        return (None, url)
+    return (_extract_article_text(html) or None, url)
+
+
 def enrich_episode_content(episode: dict, index_map: dict[str, str] | None = None) -> dict:
     """为单个 episode 补全 full_text，并打上人类可读的来源标记。
 
@@ -257,8 +300,8 @@ def enrich_episode_content(episode: dict, index_map: dict[str, str] | None = Non
             text, url = _scrape_substack_transcript(episode)
             flag = FLAG_SUBSTACK
         elif "trapital" in site:
-            # TODO: Trapital 适配器（暂缓；见 config/sources.yaml 注释）
-            log.info("Trapital 适配器暂未实现，回退 Show Notes。")
+            text, url = _scrape_trapital(episode)
+            flag = FLAG_TRAPITAL
         if text and len(text) > len(episode.get("clean_shownotes", "")):
             episode["full_text"] = text
             episode["enriched"] = True
@@ -272,6 +315,43 @@ def enrich_episode_content(episode: dict, index_map: dict[str, str] | None = Non
             return episode
         log.warning(
             "⚠️ website_scrape 未取到全文，回退 Show Notes：%s",
+            episode.get("episode_title", "")[:40],
+        )
+
+    elif strategy == "youtube_match_captions":
+        # 播客 RSS 监控 + 去配置的 YouTube 频道里按标题找到对应完整集 → 抓字幕
+        vurl = find_youtube_video(
+            episode.get("youtube_channel_id"),
+            episode.get("youtube_channel_url"),
+            episode.get("episode_title", ""),
+            episode.get("published_at"),
+        )
+        if vurl:
+            res = fetch_youtube_captions(vurl, _CAPTIONS_DIR)
+            if res["status"] == "success":
+                text = clean_vtt_to_text(res["vtt_path"])
+                if text and len(text) > len(episode.get("clean_shownotes", "")):
+                    episode["full_text"] = text
+                    episode["enriched"] = True
+                    episode["content_source"] = f"youtube_transcript ({res['caption_type']})"
+                    episode["youtube_url"] = vurl
+                    log.info("✅ [youtube_transcript] %s：%d 字符",
+                             episode.get("episode_title", "")[:40], len(text))
+                    return episode
+        # YouTube 没匹配到 → 若配了网站正文兜底（如 Trapital 文章页），退一步抓它
+        if "trapital" in (episode.get("base_url") or "").lower():
+            text, url = _scrape_trapital(episode)
+            if text and len(text) > len(episode.get("clean_shownotes", "")):
+                episode["full_text"] = text
+                episode["enriched"] = True
+                episode["content_source"] = FLAG_TRAPITAL
+                if url:
+                    episode["episode_link"] = url
+                log.info("↩️ [%s] %s：%d 字符（YouTube 未匹配，用网站正文）",
+                         FLAG_TRAPITAL, episode.get("episode_title", "")[:40], len(text))
+                return episode
+        log.warning(
+            "⚠️ 未匹配到 YouTube 视频/无字幕，回退 Show Notes：%s",
             episode.get("episode_title", "")[:40],
         )
 
