@@ -187,6 +187,9 @@ def fetch_source(source: dict, window_days: int) -> list[dict]:
         episodes.append(
             {
                 "source_name": name,
+                "source_id": source.get("id", name),     # 跨次去重用（与 YouTube 源约定一致）
+                # 稳定的单集标识：优先 RSS guid/id，缺失时退回链接/标题
+                "guid": entry.get("id") or entry.get("guid") or _best_link(entry) or entry.get("title", ""),
                 "source_lang": lang,
                 "content_strategy": content_strategy,   # 抓取策略（来自配置）
                 "screening": screening,                  # 初筛方式：claude / keyword（来自配置）

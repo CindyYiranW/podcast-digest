@@ -34,3 +34,48 @@ def mark_processed(key: str, info: dict | None = None) -> None:
     data[key] = info or {}
     _CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
     _CACHE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def dedup_key(ep: dict) -> str:
+    """单集去重键 "source:external_id"。对 RSS 和 YouTube 两种 episode 形状都健壮。"""
+    src = ep.get("source_id") or ep.get("source_name", "")
+    ext = (
+        ep.get("guid")
+        or ep.get("video_id")
+        or ep.get("episode_link")
+        or ep.get("episode_title", "")
+    )
+    return f"{src}:{ext}"
+
+
+def filter_unprocessed(episodes: list[dict]) -> list[dict]:
+    """丢掉本地缓存里已处理过（终态）的 episode，返回需要本次处理的列表。"""
+    cache = _load()
+    fresh = [ep for ep in episodes if dedup_key(ep) not in cache]
+    skipped = len(episodes) - len(fresh)
+    if skipped:
+        log.info("跨次去重：跳过 %d 集上次已处理过的 episode，本次处理 %d 集。", skipped, len(fresh))
+    return fresh
+
+
+def mark_terminal(episodes: list[dict]) -> None:
+    """把进入终态的 episode 记入缓存（一次读、一次写）。
+
+    终态 = 判定不相关，或「相关且已拿到文字稿(enriched)」。
+    「相关但没拿到文字稿」不记——下次重试（文字稿可能晚些才出现）。
+    """
+    data = _load()
+    changed = False
+    for ep in episodes:
+        if ep.get("is_relevant") and not ep.get("enriched"):
+            continue  # pending：留待下次重试
+        status = "relevant" if ep.get("is_relevant") else "irrelevant"
+        data[dedup_key(ep)] = {
+            "title": ep.get("episode_title", ""),
+            "status": status,
+            "enriched": bool(ep.get("enriched")),
+        }
+        changed = True
+    if changed:
+        _CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _CACHE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -6,7 +6,11 @@
 #                     rss_transcript_tag / youtube_channel_rss）
 #   screening：怎么判相关性（claude=用 Claude 初筛，默认；keyword=关键词匹配不调 Claude）
 # 二者互相独立——任何源都能任意组合。keyword 适合 show notes 干净清晰、可凭其判断的源。
-window_days: 14
+#
+# 运行节奏：每周跑两次（周一、周五）。窗口设 4 天即可覆盖两次运行的间隔
+#（周五→周一 3 天，周一→周五 4 天），既不漏集也不会一次拉太多旧集。
+# 跨次去重（data/cache/processed.json）作为兜底，处理重叠/补跑/晚发布等边界情况。
+window_days: 4
 
 sources:
   # —— P0 阶段只用这一个：Decoder（英文，常带完整文字稿，最适合做第一个测试源）——
