@@ -156,9 +156,16 @@ def _scrape_substack_transcript(episode: dict) -> tuple[str | None, str | None]:
     if not page:
         return (None, post_url)
 
-    m = _SUBSTACK_TRANSCRIPTION_RE.search(page.decode("utf-8", "ignore"))
+    page_text = page.decode("utf-8", "ignore")
+    m = _SUBSTACK_TRANSCRIPTION_RE.search(page_text)
     if not m:
-        return (None, post_url)  # 该文章没有自动转写（如纯文字 newsletter）
+        # 没有公开转写。区分两种情况：付费墙锁住 vs 该文章本就没有转写。
+        # 付费集的公开 HTML 里没有 transcription.json，但带 only_paid 受众标记。
+        if '"only_paid"' in page_text or '\\"only_paid\\"' in page_text:
+            episode["paywalled"] = True
+            log.info("🔒 [付费墙] 转写为订阅者专享，无法抓取：%s",
+                     episode.get("episode_title", "")[:40])
+        return (None, post_url)  # 该文章没有公开转写（付费墙 / 纯文字 newsletter）
     json_url = m.group(0).replace("\\u0026", "&").replace("\\/", "/")
 
     data = _fetch_html(json_url)

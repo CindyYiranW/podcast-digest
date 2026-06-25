@@ -170,6 +170,7 @@ def send_report(result: dict, no_transcript: list | None = None) -> bool:
         md = "\n".join(
             f"• {('⭐ ' if ep.get('guest_is_priority') else '')}{ep.get('source_name', '')}"
             f"｜{ep.get('episode_title', '')}"
+            f"{'　🔒 付费墙（订阅者专享）' if ep.get('paywalled') else ''}"
             for ep in no_transcript
         )
         ok &= _post(_card("📄 相关但无文字稿（未做深度分析）", md, "grey"))

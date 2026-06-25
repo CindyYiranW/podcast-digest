@@ -95,7 +95,12 @@ def _episode_to_row(ep: dict, run_id: str, run_date: str, processed_at: str) -> 
     """把一个 episode 映射成表格的 12 列（顺序固定，对应 A:L）。"""
     status = _relevance_status(ep)
     if status == "Relevant":
-        skip_reason = "" if ep.get("enriched") else "no_transcript"
+        if ep.get("enriched"):
+            skip_reason = ""
+        elif ep.get("paywalled"):
+            skip_reason = "paywalled"
+        else:
+            skip_reason = "no_transcript"
     else:
         skip_reason = ep.get("reason", "") or ""
     return [
