@@ -70,10 +70,15 @@ class LLMClient:
         )
 
     def analyze(self, prompt: str, output_schema: dict | None = None) -> str:
-        """深度分析：用高质量模型。"""
+        """深度分析：用高质量模型。
+
+        max_tokens 是输出上限（不是实际花费——模型只生成需要的量）。
+        所有相关集合并成一次调用，每集结构化输出约 1.5–2k tokens，
+        故设较高上限避免多集时被截断（截断会导致 JSON 解析失败）。
+        """
         return self.provider.complete(
             model=self.analysis_model, prompt=prompt,
-            max_tokens=8000, schema=output_schema,
+            max_tokens=32000, schema=output_schema,
         )
 
 

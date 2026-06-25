@@ -28,7 +28,9 @@ class AnthropicProvider(LLMProvider):
                 "    ANTHROPIC_API_KEY=sk-ant-你的key\n"
                 "（还没有 .env 就先运行： cp .env.example .env ）"
             )
-        self.client = anthropic.Anthropic(api_key=api_key)
+        # max_retries：SDK 自带指数退避，重试 429/529/5xx（如 overloaded_error）。
+        # 逐集分析时，单集偶发过载不该丢整集——多给几次重试。
+        self.client = anthropic.Anthropic(api_key=api_key, max_retries=5)
 
     def complete(
         self,
@@ -48,5 +50,9 @@ class AnthropicProvider(LLMProvider):
             kwargs["output_config"] = {
                 "format": {"type": "json_schema", "schema": schema}
             }
-        resp = self.client.messages.create(**kwargs)
-        return "".join(b.text for b in resp.content if b.type == "text")
+        # 用流式：分析这类高 max_tokens / 长输出的请求，非流式会被 SDK 拒绝
+        #（"Streaming is required for operations that may take longer than 10 minutes"）。
+        # 流式对小请求（初筛）也安全，get_final_message() 拿到完整结果。
+        with self.client.messages.stream(**kwargs) as stream:
+            msg = stream.get_final_message()
+        return "".join(b.text for b in msg.content if b.type == "text")

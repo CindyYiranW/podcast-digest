@@ -76,6 +76,25 @@ ANALYSIS_SCHEMA = {
     "additionalProperties": False,
 }
 
+# 跨集核心判断单独一次调用：只喂各集的标题+摘要+要点（不喂全文），稳又省。
+_INSIGHT_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "cross_episode_insight": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["cross_episode_insight"],
+    "additionalProperties": False,
+}
+
+_INSIGHT_PROMPT = (
+    "你是面向 PGC / 短剧出海 / AI内容 / 流媒体 / 创作者经济团队的情报分析师。\n"
+    "下面是本期各集的标题、一句话摘要和要点。请提炼 3–5 条【本期核心判断】，"
+    "聚焦竞品动向、行业趋势、对我们内容与平台策略的启示；每条一句话，"
+    "要做跨集综合，不要简单复述单集内容。\n"
+    '只输出 JSON：{"cross_episode_insight": ["...", "..."]}。\n\n'
+    "本期各集：\n"
+)
+
 
 def _frameworks_text(episodes: list[dict], filters: dict) -> str:
     """只挑出本期实际命中的 framework，连同它们的问题，序列化成文本。"""
@@ -111,6 +130,38 @@ def _build_payload(episodes: list[dict]) -> str:
     return json.dumps(items, ensure_ascii=False, indent=2)
 
 
+def _analyze_one(client: LLMClient, prompt_tpl: str, filters: dict, ep: dict) -> dict | None:
+    """单集深度分析（一次调用一集，避免一次塞太多全文导致模型漏集/截断）。"""
+    prompt = (
+        prompt_tpl.replace("<<FRAMEWORKS>>", _frameworks_text([ep], filters))
+        .replace("<<EPISODES_PAYLOAD>>", _build_payload([ep]))
+    )
+    raw = client.analyze(prompt, output_schema=ANALYSIS_SCHEMA)
+    eps = extract_json(raw).get("episodes", [])
+    return eps[0] if eps else None
+
+
+def _cross_insight(client: LLMClient, analyzed: list[dict]) -> list[str]:
+    """从各集的标题/摘要/要点综合出「本期核心判断」。失败只记日志、返回空。"""
+    if not analyzed:
+        return []
+    brief = [
+        {
+            "episode_title": e.get("episode_title", ""),
+            "summary": e.get("summary", ""),
+            "key_points": e.get("podcast_key_points", []),
+        }
+        for e in analyzed
+    ]
+    prompt = _INSIGHT_PROMPT + json.dumps(brief, ensure_ascii=False, indent=2)
+    try:
+        raw = client.analyze(prompt, output_schema=_INSIGHT_SCHEMA)
+        return extract_json(raw).get("cross_episode_insight", [])
+    except Exception as e:  # noqa: BLE001
+        log.warning("跨集核心判断生成失败（不影响逐集分析）：%s", e)
+        return []
+
+
 def analyze(episodes: list[dict]) -> dict:
     """对初筛保留（is_relevant=True）的 episode 做深度分析。"""
     # 规则：只有拿到真正全文/文字稿（enriched=True）的相关 episode 才做深度分析。
@@ -127,18 +178,26 @@ def analyze(episodes: list[dict]) -> dict:
     prompt_tpl = load_prompt("analysis_prompt.txt")
     filters = get_filters()
 
-    prompt = (
-        prompt_tpl.replace("<<FRAMEWORKS>>", _frameworks_text(kept, filters))
-        .replace("<<EPISODES_PAYLOAD>>", _build_payload(kept))
-    )
+    # 逐集分析：一次一集（可靠、可扩展），再单独综合「本期核心判断」。
+    log.info("开始深度分析 %d 集（逐集调用，模型：%s）…", len(kept), client.analysis_model)
+    analyzed: list[dict] = []
+    for i, ep in enumerate(kept, 1):
+        title = ep.get("episode_title", "")[:40]
+        try:
+            one = _analyze_one(client, prompt_tpl, filters, ep)
+        except Exception as e:  # noqa: BLE001
+            log.error("  ✗ [%d/%d] 分析失败，跳过：%s | %s", i, len(kept), title, e)
+            continue
+        if one:
+            analyzed.append(one)
+            log.info("  ✓ [%d/%d] %s", i, len(kept), title)
+        else:
+            log.warning("  ⚠️ [%d/%d] 模型未返回该集结果：%s", i, len(kept), title)
 
-    log.info("开始深度分析 %d 集（模型：%s）…", len(kept), client.analysis_model)
-    raw = client.analyze(prompt, output_schema=ANALYSIS_SCHEMA)
-    try:
-        result = extract_json(raw)
-    except Exception as e:  # noqa: BLE001
-        log.error("深度分析结果解析失败：%s", e)
-        raise
+    result = {
+        "cross_episode_insight": _cross_insight(client, analyzed),
+        "episodes": analyzed,
+    }
 
     # 把初筛阶段的元信息（内容来源、嘉宾、相关性分数）回填到 LLM 输出上，
     # 用于报告展示 + 排序（优先访谈在前）。
