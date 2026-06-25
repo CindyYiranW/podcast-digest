@@ -75,7 +75,7 @@ Roughly: **Decoder** and **The Town** give the platform/media-strategy layer, **
 - **HTTP:** `requests`
 - **HTML parsing:** `beautifulsoup4`, `lxml`
 - **Config:** `PyYAML`, `python-dotenv`
-- **LLM:** Anthropic Claude (default); Volcengine Ark via OpenAI-compatible provider
+- **LLM:** Anthropic Claude (Haiku for screening, Sonnet for analysis)
 - **YouTube captions:** `yt-dlp`
 - **Delivery:** Feishu/Lark webhook cards + Sheets API audit log
 
@@ -105,63 +105,26 @@ cp .env.example .env
 Then edit `.env`:
 
 ```bash
-# Which LLM provider to use: "anthropic" (default) or "ark" (Volcengine 火山方舟)
-LLM_PROVIDER=anthropic
-
-# --- provider = anthropic ---
-# Get a key at https://console.anthropic.com (one key covers both models below)
+# Get an Anthropic API key at https://console.anthropic.com (one key covers both models below)
 ANTHROPIC_API_KEY=sk-ant-...
 
-# --- provider = ark (only if LLM_PROVIDER=ark; requires `pip install openai`) ---
-ARK_API_KEY=
-# ARK_BASE_URL=https://ark.cn-beijing.volces.com/api/v3   # optional override
-
-# Models (optional — sensible defaults shown). For Ark, set your model/endpoint IDs.
+# Models (optional — sensible defaults shown)
 LLM_SCREENING_MODEL=claude-haiku-4-5     # cheap/fast, used for screening
 LLM_ANALYSIS_MODEL=claude-sonnet-4-6     # higher quality, used for analysis
 
-# Delivery (optional): a Feishu/Lark custom-bot webhook. If unset, the digest
+# Delivery (optional): a Feishu custom-bot webhook. If unset, the digest
 # only prints to the terminal.
-FEISHU_WEBHOOK_URL=https://open.larkoffice.com/open-apis/bot/v2/hook/...
+FEISHU_WEBHOOK_URL=
 
 # Audit logging (optional): append every processed episode to a Feishu sheet.
-# Needs a Feishu/Lark self-built app (App ID/Secret) with Sheets read/write,
+# Needs a Feishu self-built app (App ID/Secret) with Sheets read/write,
 # added as an editor on the target spreadsheet. Off unless ENABLED=true.
 FEISHU_SHEET_ENABLED=false
 FEISHU_APP_ID=
 FEISHU_APP_SECRET=
 FEISHU_SHEET_SPREADSHEET_TOKEN=        # the <token> in /sheets/<token>
 FEISHU_SHEET_SHEET_ID=                 # the tab id (?sheet=<id>, or the first tab)
-# FEISHU_API_BASE=https://open.larksuite.com   # only if your app is on Lark international
-
-# YouTube transcripts (recommended): cookies let yt-dlp fetch captions past
-# YouTube's bot-check. Needed for unattended/server runs — see the cookies
-# section below. Pick ONE:
-YOUTUBE_COOKIES_FILE=                  # server/cron: path to an exported cookies.txt
-# YOUTUBE_COOKIES_FROM_BROWSER=safari  # local Mac: read your login from a browser
 ```
-
-Switching to Ark later is just a config change — set `LLM_PROVIDER=ark`, fill `ARK_API_KEY`, and point the model variables at your Ark model/endpoint IDs. No business-logic code changes.
-
-### YouTube transcripts: cookies setup
-
-Three sources pull their transcript from YouTube captions — **Your Morning Coffee**, **The Town**, and **Trapital**. YouTube blocks caption downloads from unfamiliar/datacenter IPs with a *"Sign in to confirm you're not a bot"* check. Without cookies the pipeline still runs, but those sources silently degrade to *"relevant, no transcript"* (you'll see a `status=blocked` / `YouTube 拦截` warning in the logs, and a heads-up at startup). Giving yt-dlp cookies from a logged-in YouTube account gets past the check.
-
-**Server / cron (the deployment path) — use a `cookies.txt` file.** A headless box has no browser, so export the cookie file once on a machine that does, copy it over, and point `YOUTUBE_COOKIES_FILE` at it:
-
-- Easiest: install the browser extension **"Get cookies.txt LOCALLY"**, open youtube.com while logged in, export, and save as `cookies.txt`.
-- Or on any machine with a logged-in browser: `yt-dlp --cookies-from-browser safari --cookies cookies.txt https://www.youtube.com` then copy the resulting `cookies.txt` to the server.
-- Then in `.env`: `YOUTUBE_COOKIES_FILE=/abs/path/to/cookies.txt`.
-
-**Local Mac (for testing) — read cookies straight from a browser.** Set `YOUTUBE_COOKIES_FROM_BROWSER=safari` (you must be logged into YouTube in that browser). **Safari or Firefox are more reliable than Chrome on macOS** — recent Chrome encrypts its cookie store and may fail to decrypt or trigger a Keychain prompt.
-
-**How to tell it's working:** a successful run logs `✅ [youtube_transcript (auto|manual)] …`. If you instead see `status=blocked` / `YouTube 拦截`, the cookies are missing, stale, or the IP is still being throttled.
-
-**Caveats — this is best-effort, not guaranteed:**
-- Cookies **expire** (YouTube rotates them; logging out invalidates them). Refresh `cookies.txt` periodically if YouTube sources start coming back blocked.
-- Use a **throwaway Google account**, not a personal one — automated reuse from server IPs can get an account flagged.
-- `cookies.txt` is a **credential** — it's gitignored; never commit it or paste it anywhere.
-- Even with valid cookies, datacenter IPs can still be rate-limited. Non-YouTube sources (Decoder, Big Technology) are unaffected either way.
 
 ### 3. Add your own podcast sources
 
@@ -262,7 +225,7 @@ python -m src.integrations.feishu_sheet      # preview the 12-column row mapping
 
 ### 6. Automate (optional)
 
-Run `python -m src.main` on a schedule (cron or GitHub Actions, weekly/bi-weekly) to deliver the digest hands-off. On an unattended/server host you'll want two things in place: a persisted dedup cache (`data/cache/processed.json`) so it doesn't re-process episodes across runs, and — because datacenter IPs get bot-blocked by YouTube — a `cookies.txt` for caption extraction. See **[YouTube transcripts: cookies setup](#youtube-transcripts-cookies-setup)** above; without it, the three YouTube-backed sources will run but produce no transcripts.
+Run `python -m src.main` on a schedule (cron, weekly/bi-weekly) to deliver the digest hands-off. On an unattended/server host, keep the dedup cache (`data/cache/processed.json`) on persistent disk so it doesn't re-process episodes across runs.
 
 ### Audit logging (optional)
 
