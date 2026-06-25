@@ -50,13 +50,15 @@ def _candidate(source: dict, video: dict, key: str) -> dict:
     }
 
 
-def collect_ready_youtube_episodes(window_days: int) -> list[dict]:
-    """处理所有 YouTube 源，返回可进入深度分析的 episode 列表。
+def collect_youtube_episodes(window_days: int) -> list[dict]:
+    """处理所有 YouTube 源，返回【所有处理过的】候选 episode（供主流程分析 + 飞书表格审计）。
 
-    流程：抓 RSS → 建候选 → 初筛（按该源 screening：keyword 或 claude，基于
-    description）→ 仅对通过初筛的视频抓字幕 → 产出含 full_text 的 episode。
+    - 通过初筛 + 字幕成功 → is_relevant=True, enriched=True, full_text=字幕（进深度分析）
+    - 通过初筛 + 字幕失败 → is_relevant=True, enriched=False（进"无文字稿"标记）
+    - 未通过初筛       → is_relevant=False（仅留作审计日志）
+    - 已处理过（缓存命中）→ 跳过、不返回（首次处理时已记录过）
     """
-    ready: list[dict] = []
+    processed: list[dict] = []
     for source in get_sources().get("sources", []):
         if not source.get("enabled", False):
             continue
@@ -82,19 +84,24 @@ def collect_ready_youtube_episodes(window_days: int) -> list[dict]:
         # 2) 初筛（keyword 或 claude，由该源的 screening 决定）
         screen_dispatch(cands)
 
-        # 3) 仅对通过初筛的视频抓字幕（省 yt-dlp + Claude 分析成本）
+        # 3) 仅对通过初筛的视频抓字幕（省 yt-dlp + Claude 分析成本）；
+        #    未通过/失败的也保留下来（仅用于审计日志，不进深度分析）。
         for ep in cands:
             video = ep.pop("_video")
             key = ep.pop("_key")
             if not ep.get("is_relevant"):
-                log.info("  ❌ %s，跳过：%s",
+                log.info("  ❌ %s，跳过抓字幕：%s",
                          ep.get("reason", "not_relevant"), video["title"][:50])
+                ep["enriched"] = False
+                processed.append(ep)          # 留作审计
                 continue
 
             res = fetch_youtube_captions(video["video_url"], _CAPTIONS_DIR)
             if res["status"] != "success":
                 log.warning("  ⚠️ 抓字幕失败(%s)，下次重试：%s",
                             res.get("error") or res["status"], video["title"][:50])
+                ep["enriched"] = False        # 相关但无文字稿
+                processed.append(ep)
                 continue
 
             text = clean_vtt_to_text(res["vtt_path"])
@@ -111,9 +118,10 @@ def collect_ready_youtube_episodes(window_days: int) -> list[dict]:
             ep["transcript_txt_path"] = txt_path
             log.info("  ✅ %s 字幕 %d 字符：%s",
                      res["caption_type"], len(text), video["title"][:50])
-            ready.append(ep)
+            processed.append(ep)
             mark_processed(key, {"title": video["title"], "caption_type": res["caption_type"]})
 
-    if ready:
-        log.info("YouTube 源共产出 %d 集可分析内容。", len(ready))
-    return ready
+    ready = sum(1 for e in processed if e.get("enriched"))
+    if processed:
+        log.info("YouTube 源处理 %d 集（其中可分析 %d 集）。", len(processed), ready)
+    return processed

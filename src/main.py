@@ -13,11 +13,13 @@
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 
 from src.fetch.rss_fetcher import fetch_all
 from src.fetch.content_enricher import enrich_all
-from src.fetch.youtube_pipeline import collect_ready_youtube_episodes
+from src.fetch.youtube_pipeline import collect_youtube_episodes
+from src.integrations.feishu_sheet import append_episodes_to_sheet
 from src.parse.shownotes_parser import parse_all
 from src.utils.config import get_sources
 from src.llm.screening import screen_dispatch
@@ -173,14 +175,22 @@ def main() -> None:
         enrich_all(relevant)
 
     # [4b] YouTube 源：关键词初筛(不花 Claude) → 抓字幕 → 直接得到可分析全文
+    #      （返回所有处理过的候选，含未通过初筛/无字幕的，供审计日志用）
     window_days = int(get_sources().get("window_days", 14))
-    yt_episodes = collect_ready_youtube_episodes(window_days)
+    yt_episodes = collect_youtube_episodes(window_days)
     episodes = episodes + yt_episodes
 
     # 相关但没拿到文字稿（只剩 show notes）：标记，但不做深度分析
     no_transcript = [e for e in episodes if e.get("is_relevant") and not e.get("enriched")]
 
     result = analyze(episodes)             # [5] 深度分析（仅「相关且有文字稿」）
+
+    # 把分析得到的一句话摘要回填到原 episode 上（飞书表格审计日志要用）
+    summaries = {e.get("episode_title", "").strip(): e.get("summary", "")
+                 for e in result.get("episodes", [])}
+    for ep in episodes:
+        if not ep.get("summary"):
+            ep["summary"] = summaries.get(ep.get("episode_title", "").strip(), "")
 
     report = render_report(result, no_transcript)  # [6] 渲染报告
     print("\n" + report)
@@ -191,6 +201,11 @@ def main() -> None:
         send_report(result, no_transcript)
     else:
         log.info("未配置 FEISHU_WEBHOOK_URL，跳过飞书推送（仅终端打印）。")
+
+    # [8] 飞书表格审计日志：把【所有处理过的 episode】追加进表格（默认关闭）
+    if os.getenv("FEISHU_SHEET_ENABLED") == "true":
+        log.info("FEISHU_SHEET_ENABLED=true，写入飞书表格审计日志…")
+        append_episodes_to_sheet(episodes)
 
     log.info("===== 流水线结束 =====")
 
