@@ -8,6 +8,11 @@ cookies.txt
 # 本地交接文档（含敏感部署/租户信息，不入库）
 handover.md
 
+# 本机部署文件（含本机绝对路径，机器相关，不入库）
+run.sh
+com.podcast-digest.plist
+data/logs/
+
 # Python 虚拟环境
 .venv/
 venv/
